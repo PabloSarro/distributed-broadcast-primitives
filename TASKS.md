@@ -12,6 +12,26 @@ Spec: `../info/project/proj_description.md` §1.2, §2.3, §2.4, FAQ. Grading: c
 - [ ] Little stdout/stderr (trimmed at 1 MiB): no per-message prints.
 - [ ] Credit any code taken from the internet with a link comment (§3.1).
 
+## Moodle testing checkpoints (official correctness feedback)
+Testing Milestone 1 is open (Oct 16 → Oct 30, 23:59): unlimited submissions, one test per submission, pass/fail only, no performance score. 7 tests (0–6); 0–3 return fast, 4–6 can take longer. Upload `submission.zip` (contents of `template_cpp/`, after `cleanup.sh`) plus `test.txt` holding a single integer 0–6. "Setup script failed" = wrong zip structure. This complements the local checks (it doesn't replace them): it's the only run in the real grading environment, but gives no details on why a test fails.
+- [ ] **CP0** (end of Phase 0): bare template → test 0. Expect a fail (no output), but no "setup script failed" → packaging + compiler OK.
+- [ ] **CP1** (end of Phase 1, baseline passes local manual run): tests 0–6. Start 4–6 first since they are slow. Any fail → fix before Phase 5.
+- [ ] **CP2** (end of Phase 5, after the last kept optimization): tests 0–6 again; optimizations must not break correctness.
+- [ ] **CP3** (Phase 6, the exact zip to be submitted officially): tests 0–6 on that same zip.
+- [ ] Record each checkpoint's results (commit hash, test → 0/1) in the log at the bottom.
+
+### Preparing the submission files (Claude does this; the user only uploads)
+Same procedure for every checkpoint and for the official submission. Wrapped in `tools/package.sh <test>` once it exists (Phase 0). `zip` isn't installed, so Python's built-in `zipfile` module is used instead.
+1. Commit state: working tree clean, note the commit hash (`git rev-parse --short HEAD`) for the checkpoint log.
+2. Build check: `cd template_cpp && ./build.sh` must succeed with zero warnings.
+3. Clean: `./cleanup.sh` (removes `bin/da_proc` and `target/`).
+4. Zip the **contents** of `template_cpp/` (no top-level folder, no `.gitignore`), from inside `template_cpp/`:
+   `python3 -m zipfile -c ../submission.zip bin build.sh cleanup.sh CMakeLists.txt run.sh src`
+5. Verify the structure: `python3 -m zipfile -l ../submission.zip` must show `build.sh`, `run.sh`, `cleanup.sh`, `CMakeLists.txt`, `bin/…`, `src/…` at top level, and no `target/` or `bin/da_proc`.
+6. Verify it builds from the zip: extract into a fresh temp dir (`python3 -m zipfile -e`), `chmod +x *.sh` (Python's extractor drops file permissions), `./build.sh`, and do a quick 3-process run.
+7. Testing milestone only: `printf '%d\n' <test> > test.txt` in the repo root (single integer 0–6). Official submission: **no** `test.txt`.
+8. Hand-off: `submission.zip` (+ `test.txt`) are in the repo root, `/home/pablo/MA3/DA/distributed-broadcast-primitives/`, reachable from Windows at `\\wsl.localhost\Ubuntu-22.04\home\pablo\MA3\DA\distributed-broadcast-primitives\`. Both are git-ignored. The user uploads them to Moodle and reports the 0/1 results.
+
 ## Design (target, built incrementally)
 - **Threads**: main (blocks SIGTERM/SIGINT in all threads, waits with `sigwait`, runs shutdown), receiver thread, sender/retransmit thread. Logger flushing piggybacks on these (separate writer thread only if profiling says so).
 - **Wire format** (fixed byte order):
@@ -29,8 +49,8 @@ Spec: `../info/project/proj_description.md` §1.2, §2.3, §2.4, FAQ. Grading: c
 - [ ] Build the untouched template: `cd template_cpp && ./build.sh`; run the 3-process manual example from §2.4.
 - [ ] Verify netem on WSL loopback: `sudo tc qdisc add dev lo root netem delay 200ms 50ms loss 10% 25% reorder 25% 50%`, ping localhost, then `sudo tc qdisc del dev lo root`. Note: `tools/tc.py` pipes the VM password `dcl` to sudo → run its commands manually or pass your own password locally (don't commit it).
 - [ ] Remove the `hello.c` demo: drop it from `src/CMakeLists.txt` `SOURCES` and the `hello()` call in `main.cpp`.
-- [ ] Packaging script `tools/package.sh`: `cleanup.sh`, then zip the **contents** of `template_cpp/` (not the folder) into `submission.zip`; list the zip to check structure.
-- [ ] Submit the trivial template to the Moodle **testing** milestone (test 0) once the link is open: confirms packaging + compiler.
+- [ ] Packaging script `tools/package.sh <test>`: automates steps 2–7 of "Preparing the submission files" above.
+- [ ] Moodle checkpoint **CP0** (see above).
 
 ## Phase 1 — Baseline, correctness first (Days 1–2)
 - [ ] Parse config `m i` (receiver = i); read hosts via the template `Parser`; don't preallocate anything of size `m` (m can be MAX_INT).
@@ -54,7 +74,7 @@ Spec: `../info/project/proj_description.md` §1.2, §2.3, §2.4, FAQ. Grading: c
 - [ ] Same with `tc` netem (delay/loss/reorder) on.
 - [ ] Same with stress interference (STOP/CONT/TERM), incl. receiver being TERM'd (PL1 then not required).
 - [ ] Edge cases: receiver started last / paused long (SIGSTOP), sender killed mid-batch, SIGTERM under max load (no partial lines), hosts with trailing spaces/newlines, M = 2147483647 (no huge allocation).
-- [ ] Moodle testing milestone: run every test index (0..idx_max) via `test.txt`; all must pass before optimizing further.
+- [ ] Moodle checkpoint **CP1** (tests 0–6) — all must pass before optimizing further.
 
 ## Phase 4 — Benchmark harness (Day 3)
 - [ ] `tools/bench.sh P SECONDS`: hosts for P procs, config `<huge m> 1`, start all with `taskset -c 0,1` (2 cores like the grader), no tc, wait SECONDS (grader ≈ 2 min; use 30–60 s locally), SIGTERM all, wait for exit, report receiver `d` lines / SECONDS, output size, max RSS (`/usr/bin/time -v` or `/proc/<pid>/status`).
@@ -70,9 +90,10 @@ Spec: `../info/project/proj_description.md` §1.2, §2.3, §2.4, FAQ. Grading: c
 - [ ] Logger: hand-rolled int→text, large buffer, flush off the hot path if it shows up in profiles (`perf` if available).
 - [ ] Check: no spinning (CPU of idle senders ≈ 0), threads ≤ 3–4, RSS small at P = 128.
 - [ ] Watch output size: at very high throughput the receiver log can approach the 64 MiB cap — note numbers in the log.
+- [ ] Moodle checkpoint **CP2** (tests 0–6).
 
 ## Phase 6 — Freeze & submit (Days 6–7, submit by Oct 29 evening, servers get slow near deadlines)
-- [ ] Full Phase 3 matrix + all Moodle testing indices pass on the final build.
+- [ ] Full Phase 3 matrix passes on the final build; Moodle checkpoint **CP3** (tests 0–6) on the exact zip to submit.
 - [ ] Remove debug prints; stdout minimal.
 - [ ] `tools/package.sh`; unzip into a temp dir, `./build.sh` there, run one stress test from the unzipped copy.
 - [ ] Official **submitting** milestone: one attempt only, `submission.zip` without `test.txt`.
@@ -84,6 +105,10 @@ Spec: `../info/project/proj_description.md` §1.2, §2.3, §2.4, FAQ. Grading: c
 ## Benchmark log
 | Date | Change | P | msgs/s (receiver d-lines/s) | Output MiB | Max RSS | Notes |
 |------|--------|---|-----------------------------|------------|---------|-------|
+
+## Moodle checkpoint log
+| Date | CP | Commit | Results (test: 0/1) | Notes |
+|------|----|--------|---------------------|-------|
 
 ## Later (after M1)
 - [ ] Milestone 2 FIFO-URB on top of the PL module (Dec 9). Milestone 3 Lattice Agreement (Dec 30).
