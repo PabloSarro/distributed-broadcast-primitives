@@ -71,9 +71,9 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 
 ## Phase 3 — Correctness matrix (Days 2–3, re-run after every optimization)
 - [ ] P ∈ {2, 3, 10, 50, 128} × M ∈ {10, 1 000, 100 000} without tc, no interference (`tools/run_plain.sh`). Done: all M ∈ {10, 1 000}; M = 100 000 for P ∈ {2, 3, 10, 50}. Missing: P = 128, M = 100 000 (≈ 12.7 M messages, needs a wait of ≥ 7 min).
-- [ ] Same with `tc` netem (delay/loss/reorder) on.
-- [ ] Same with stress interference (STOP/CONT/TERM), incl. receiver being TERM'd (PL1 then not required).
-- [ ] Edge cases: receiver started last / paused long (SIGSTOP), sender killed mid-batch, SIGTERM under max load (no partial lines), hosts with trailing spaces/newlines, M = 2147483647 (no huge allocation).
+- [ ] Same with `tc` netem (delay/loss/reorder) on. Done (OK, 2026-10-24): P = 3, M = 1000 plain and with stress interference. Missing: larger P and M.
+- [ ] Same with stress interference (STOP/CONT/TERM), incl. receiver being TERM'd (PL1 then not required). Done (all OK, `tools/run_stress.sh`): P ∈ {2, 3, 10} × M ∈ {10, 1 000, 100 000}, P = 50 × {10, 1 000}, P = 128 × {10, 1 000}; receiver TERM'd in P = 3, M = 10. Missing: P = 50 and 128 with M = 100 000.
+- [ ] Edge cases: receiver started last / paused long (SIGSTOP), sender killed mid-batch, SIGTERM under max load (no partial lines), hosts with trailing spaces/newlines, M = 2147483647 (no huge allocation). Done (OK, no `tc`): receiver started 6 s after the senders, hosts file with trailing spaces/tab/blank line/no final newline, SIGTERM under max load ×5 (no partial lines), M = 2147483647 (RSS ≈ 4 MB). Missing: sender killed mid-batch as a separate test, receiver paused for a long time.
 - [ ] Moodle checkpoint **CP1** (tests 0–6) — all must pass before optimizing further.
 
 ## Phase 4 — Benchmark harness (Day 3)
