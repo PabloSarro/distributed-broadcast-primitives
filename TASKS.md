@@ -46,10 +46,10 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 - **Not doing** (unless measurements demand it): congestion control beyond window + RTO backoff, compression, lock-free structures, custom allocators.
 
 ## Phase 0 — Setup (Day 1, Oct 23)
-- [ ] Build the untouched template: `cd template_cpp && ./build.sh`; run the 3-process manual example from §2.4.
+- [x] Build the untouched template: `cd template_cpp && ./build.sh`; run the 3-process manual example from §2.4. (Upstream stores the `.sh`/`.py` scripts without the executable bit → made them executable, so the zip carries it too.)
 - [ ] Verify netem on WSL loopback: `sudo tc qdisc add dev lo root netem delay 200ms 50ms loss 10% 25% reorder 25% 50%`, ping localhost, then `sudo tc qdisc del dev lo root`. Note: `tools/tc.py` pipes the VM password `dcl` to sudo → run its commands manually or pass your own password locally (don't commit it).
-- [ ] Remove the `hello.c` demo: drop it from `src/CMakeLists.txt` `SOURCES` and the `hello()` call in `main.cpp`.
-- [ ] Packaging script `tools/package.sh <test>`: automates steps 2–7 of "Preparing the submission files" above.
+- [x] Remove the `hello.c` demo: drop it from `src/CMakeLists.txt` `SOURCES` and the `hello()` call in `main.cpp`.
+- [x] Packaging script `tools/package.sh <test>`: automates steps 2–7 of "Preparing the submission files" above.
 - [ ] Moodle checkpoint **CP0** (see above).
 
 ## Phase 1 — Baseline, correctness first (Days 1–2)
