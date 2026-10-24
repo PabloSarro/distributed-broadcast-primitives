@@ -61,12 +61,12 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 - [x] Manual 3-process run with `example/` files; outputs look right.
 
 ## Phase 2 — Validation tooling (Day 2)
-- [ ] `tools/validate_pl.py LOGSDIR [--crashed ids]` (or parse saved stress output for `Sending SIGTERM to process N`):
+- [x] `tools/validate_pl.py LOGSDIR [--crashed ids]` (or parse saved stress output for `Sending SIGTERM to process N`):
   - every line matches `^b \d+$` / `^d \d+ \d+$`, file ends with `\n`, size ≤ 64 MiB;
   - senders: `b` lines are exactly 1..k, no gaps/dups;
   - receiver: no duplicate `d` (PL2); every `d s q` has `b q` in sender s's log (PL3);
   - if receiver and sender s are both correct: all `b` of s delivered (PL1).
-- [ ] `tools/run_stress.sh P M WAIT [tc]` = mkdir `runs/<ts>`, `(sleep WAIT; echo) | tools/stress.py perfect -r template_cpp/run.sh -l runs/<ts> -p P -m M | tee runs/<ts>/stress.log`, then validator.
+- [x] `tools/run_stress.sh P M WAIT [tc]` = mkdir `runs/<ts>`, `(sleep WAIT; echo) | tools/stress.py perfect -r template_cpp/run.sh -l runs/<ts> -p P -m M | tee runs/<ts>/stress.log`, then validator.
 - [ ] Optional dev build with ThreadSanitizer/ASan via a direct `g++ -fsanitize=… -Isrc/include …` script (cannot change the template CMake flags); run once on a stress test.
 
 ## Phase 3 — Correctness matrix (Days 2–3, re-run after every optimization)
