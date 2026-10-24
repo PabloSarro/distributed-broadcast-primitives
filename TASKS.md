@@ -70,7 +70,7 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 - [x] Optional dev build with ASan/UBSan via `tools/sanitize.sh` (direct `g++ -fsanitize=…`, template CMake untouched); clean on a 4-process stress run. ThreadSanitizer aborts at startup on this WSL kernel (ASLR mapping), so it is not used.
 
 ## Phase 3 — Correctness matrix (Days 2–3, re-run after every optimization)
-- [ ] P ∈ {2, 3, 10, 50, 128} × M ∈ {10, 1 000, 100 000} without tc, no interference.
+- [ ] P ∈ {2, 3, 10, 50, 128} × M ∈ {10, 1 000, 100 000} without tc, no interference (`tools/run_plain.sh`). Done: all M ∈ {10, 1 000}; M = 100 000 for P ∈ {2, 3, 10, 50}. Missing: P = 128, M = 100 000 (≈ 12.7 M messages, needs a wait of ≥ 7 min).
 - [ ] Same with `tc` netem (delay/loss/reorder) on.
 - [ ] Same with stress interference (STOP/CONT/TERM), incl. receiver being TERM'd (PL1 then not required).
 - [ ] Edge cases: receiver started last / paused long (SIGSTOP), sender killed mid-batch, SIGTERM under max load (no partial lines), hosts with trailing spaces/newlines, M = 2147483647 (no huge allocation).

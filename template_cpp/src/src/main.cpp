@@ -22,7 +22,7 @@
 namespace {
 
 constexpr uint8_t kData = 1, kAck = 2;
-constexpr uint32_t kWindow = 1024;
+constexpr uint32_t kWindow = 32;
 constexpr auto kRto = std::chrono::milliseconds(500);
 constexpr auto kScanEvery = std::chrono::milliseconds(50);
 constexpr size_t kMaxPacket = 65536;
