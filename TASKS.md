@@ -30,7 +30,7 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 5. Verify the structure: `python3 -m zipfile -l ../submission.zip` must show `build.sh`, `run.sh`, `cleanup.sh`, `CMakeLists.txt`, `bin/…`, `src/…` at top level, and no `target/` or `bin/da_proc`.
 6. Verify it builds from the zip: extract into a fresh temp dir (`python3 -m zipfile -e`), `chmod +x *.sh` (Python's extractor drops file permissions), `./build.sh`, and do a quick 3-process run.
 7. Testing milestone only: `printf '%d\n' <test> > test.txt` in the repo root (single integer 0–6). Official submission: **no** `test.txt`.
-8. Hand-off: `submission.zip` (+ `test.txt`) are in the repo root, `/home/pablo/MA3/DA/distributed-broadcast-primitives/`, reachable from Windows at `\\wsl.localhost\Ubuntu-22.04\home\pablo\MA3\DA\distributed-broadcast-primitives\`. Both are git-ignored. The user uploads them to Moodle and reports the 0/1 results.
+8. Hand-off: `submission.zip` (+ `test.txt`) are stored in the parent folder:, `/home/pablo/MA3/DA/submission/`, reachable from Windows at `\\wsl.localhost\Ubuntu-22.04\home\pablo\MA3\DA\submission\`. Both are git-ignored. The user uploads them to Moodle and reports the 0/1 results.
 
 ## Design (target, built incrementally)
 - **Threads**: main (blocks SIGTERM/SIGINT in all threads, waits with `sigwait`, runs shutdown), receiver thread, sender/retransmit thread. Logger flushing piggybacks on these (separate writer thread only if profiling says so).
