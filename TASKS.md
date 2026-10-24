@@ -14,7 +14,7 @@ Spec: `../info/project/proj_description.md` §1.2, §2.3, §2.4, FAQ. Grading: c
 
 ## Moodle testing checkpoints (official correctness feedback)
 Testing Milestone 1 is open (Oct 16 → Oct 30, 23:59): unlimited submissions, one test per submission, pass/fail only, no performance score. 7 tests (0–6); 0–3 return fast, 4–6 can take longer. Upload `submission.zip` (contents of `template_cpp/`, after `cleanup.sh`) plus `test.txt` holding a single integer 0–6. "Setup script failed" = wrong zip structure. This complements the local checks (it doesn't replace them): it's the only run in the real grading environment, but gives no details on why a test fails.
-- [ ] **CP0** (end of Phase 0): bare template → test 0. Expect a fail (no output), but no "setup script failed" → packaging + compiler OK.
+- [x] **CP0** (end of Phase 0): bare template → test 0. Expect a fail (no output), but no "setup script failed" → packaging + compiler OK.
 - [ ] **CP1** (end of Phase 1, baseline passes local manual run): tests 0–6. Start 4–6 first since they are slow. Any fail → fix before Phase 5.
 - [ ] **CP2** (end of Phase 5, after the last kept optimization): tests 0–6 again; optimizations must not break correctness.
 - [ ] **CP3** (Phase 6, the exact zip to be submitted officially): tests 0–6 on that same zip.
@@ -47,10 +47,10 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 
 ## Phase 0 — Setup (Day 1, Oct 23)
 - [x] Build the untouched template: `cd template_cpp && ./build.sh`; run the 3-process manual example from §2.4. (Upstream stores the `.sh`/`.py` scripts without the executable bit → made them executable, so the zip carries it too.)
-- [ ] Verify netem on WSL loopback: `sudo tc qdisc add dev lo root netem delay 200ms 50ms loss 10% 25% reorder 25% 50%`, ping localhost, then `sudo tc qdisc del dev lo root`. Note: `tools/tc.py` pipes the VM password `dcl` to sudo → run its commands manually or pass your own password locally (don't commit it).
+- [x] Verify netem on WSL loopback: `sudo tc qdisc add dev lo root netem delay 200ms 50ms loss 10% 25% reorder 25% 50%`, ping localhost, then `sudo tc qdisc del dev lo root`. Note: `tools/tc.py` pipes the VM password `dcl` to sudo → run its commands manually or pass your own password locally (don't commit it).
 - [x] Remove the `hello.c` demo: drop it from `src/CMakeLists.txt` `SOURCES` and the `hello()` call in `main.cpp`.
 - [x] Packaging script `tools/package.sh <test>`: automates steps 2–7 of "Preparing the submission files" above.
-- [ ] Moodle checkpoint **CP0** (see above).
+- [x] Moodle checkpoint **CP0** (see above).
 
 ## Phase 1 — Baseline, correctness first (Days 1–2)
 - [ ] Parse config `m i` (receiver = i); read hosts via the template `Parser`; don't preallocate anything of size `m` (m can be MAX_INT).
@@ -109,6 +109,7 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 ## Moodle checkpoint log
 | Date | CP | Commit | Results (test: 0/1) | Notes |
 |------|----|--------|---------------------|-------|
+| 2026-10-24 | CP0 | 20cd420 + uncommitted Phase 0 changes | 0: 0 | Setup and build OK; failed only because no `proc0N.output` files exist (expected for the bare template). |
 
 ## Later (after M1)
 - [ ] Milestone 2 FIFO-URB on top of the PL module (Dec 9). Milestone 3 Lattice Agreement (Dec 30).
