@@ -53,12 +53,12 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 - [x] Moodle checkpoint **CP0** (see above).
 
 ## Phase 1 — Baseline, correctness first (Days 1–2)
-- [ ] Parse config `m i` (receiver = i); read hosts via the template `Parser`; don't preallocate anything of size `m` (m can be MAX_INT).
-- [ ] UDP socket + wire format encode/decode (bounds-check every received packet; drop malformed).
-- [ ] Logger + signal/shutdown path (sigwait, stop flag, join, flush).
-- [ ] Sender: window W (start 1024), 1 msg/packet, fixed RTO (e.g., 200 ms) — simplest correct version.
-- [ ] Receiver: `low` + bitset dedup, deliver, ack every packet (incl. duplicates).
-- [ ] Manual 3-process run with `example/` files; outputs look right.
+- [x] Parse config `m i` (receiver = i); read hosts via the template `Parser`; don't preallocate anything of size `m` (m can be MAX_INT).
+- [x] UDP socket + wire format encode/decode (bounds-check every received packet; drop malformed).
+- [x] Logger + signal/shutdown path (sigwait, stop flag, join, flush).
+- [x] Sender: window W (start 1024), 1 msg/packet, fixed RTO (e.g., 200 ms) — simplest correct version.
+- [x] Receiver: `low` + bitset dedup, deliver, ack every packet (incl. duplicates).
+- [x] Manual 3-process run with `example/` files; outputs look right.
 
 ## Phase 2 — Validation tooling (Day 2)
 - [ ] `tools/validate_pl.py LOGSDIR [--crashed ids]` (or parse saved stress output for `Sending SIGTERM to process N`):
