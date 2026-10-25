@@ -77,11 +77,11 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 - [x] Moodle checkpoint **CP1** (tests 0–6) — all passed (2026-10-25); safe to optimize.
 
 ## Phase 4 — Benchmark harness (Day 3)
-- [ ] `tools/bench.sh P SECONDS`: hosts for P procs, config `<huge m> 1`, start all with `taskset -c 0,1` (2 cores like the grader), no tc, wait SECONDS (grader ≈ 2 min; use 30–60 s locally), SIGTERM all, wait for exit, report receiver `d` lines / SECONDS, output size, max RSS (`/usr/bin/time -v` or `/proc/<pid>/status`).
-- [ ] Record baseline numbers for P ∈ {2, 10, 50, 128} in the log below.
+- [x] `tools/bench.sh P SECONDS`: hosts for P procs, config `<huge m> 1`, start all with `taskset -c 0,1` (2 cores like the grader), no tc, wait SECONDS (grader ≈ 2 min; use 30–60 s locally), SIGTERM all, wait for exit, report receiver `d` lines / SECONDS, output size, max RSS (`/usr/bin/time -v` or `/proc/<pid>/status`).
+- [x] Record baseline numbers for P ∈ {2, 10, 50, 128} in the log below.
 
 ## Phase 5 — Performance (Days 4–5; one change at a time, measure, keep only wins, re-run Phase 3 quick set)
-- [ ] Batch 8 messages per DATA packet.
+- [x] Batch 8 messages per DATA packet (ACK now lists the seqs of the packet it answers, so this also coalesces acks per packet).
 - [ ] Ack coalescing: cumulative ack + per-packet seqs; consider one ack per recv batch.
 - [ ] `recvmmsg` / `sendmmsg` to cut syscalls.
 - [ ] Tune W (possibly scaled by P to avoid receiver buffer overflow with 127 senders).
@@ -89,7 +89,7 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 - [ ] Adaptive RTO (replaces fixed) — mostly helps the tc/loss tests.
 - [ ] Logger: hand-rolled int→text, large buffer, flush off the hot path if it shows up in profiles (`perf` if available).
 - [ ] Check: no spinning (CPU of idle senders ≈ 0), threads ≤ 3–4, RSS small at P = 128.
-- [ ] Watch output size: at very high throughput the receiver log can approach the 64 MiB cap — note numbers in the log.
+- [ ] Watch output size (baseline P = 50 already writes 57.5 MiB in 30 s, so a 2-min run would blow the 64 MiB cap. Spec: >64 MiB output is a hard limit and malformed output is discarded as empty → need a guard that stops delivering before ~60 MiB): at very high throughput the receiver log can approach the 64 MiB cap — note numbers in the log.
 - [ ] Moodle checkpoint **CP2** (tests 0–6).
 
 ## Phase 6 — Freeze & submit (Days 6–7, submit by Oct 29 evening, servers get slow near deadlines)
@@ -105,6 +105,14 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 ## Benchmark log
 | Date | Change | P | msgs/s (receiver d-lines/s) | Output MiB | Max RSS | Notes |
 |------|--------|---|-----------------------------|------------|---------|-------|
+| 2026-10-25 | baseline (fc3c7c1) | 2 | 66 k | 14.1 (20 s) | 3 MiB | 20 s run |
+| 2026-10-25 | baseline (fc3c7c1) | 10 | 97 k | 19.8 (20 s) | 4 MiB | 20 s run |
+| 2026-10-25 | baseline (fc3c7c1) | 50 | 184 k | 57.5 (30 s) | 4 MiB | 30 s run |
+| 2026-10-25 | baseline (fc3c7c1) | 128 | 87 k | 26.5 (30 s) | 4 MiB | 30 s run |
+| 2026-10-25 | batch 8/packet + list ack | 2 | 225 k | 50.5 | 3–4 MiB | 20 s run; validator OK (P=3 M=1000, P=10 M=100000) |
+| 2026-10-25 | batch 8/packet + list ack | 10 | 198 k | 41.1 | 3–4 MiB | 20 s run; validator OK (P=3 M=1000, P=10 M=100000) |
+| 2026-10-25 | batch 8/packet + list ack | 50 | 230 k | 47.1 | 3–4 MiB | 20 s run; validator OK (P=3 M=1000, P=10 M=100000) |
+| 2026-10-25 | batch 8/packet + list ack | 128 | 212 k | 43.8 | 3–4 MiB | 20 s run; validator OK (P=3 M=1000, P=10 M=100000) |
 
 ## Moodle checkpoint log
 | Date | CP | Commit | Results (test: 0/1) | Notes |
