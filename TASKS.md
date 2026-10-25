@@ -15,7 +15,7 @@ Spec: `../info/project/proj_description.md` §1.2, §2.3, §2.4, FAQ. Grading: c
 ## Moodle testing checkpoints (official correctness feedback)
 Testing Milestone 1 is open (Oct 16 → Oct 30, 23:59): unlimited submissions, one test per submission, pass/fail only, no performance score. 7 tests (0–6); 0–3 return fast, 4–6 can take longer. Upload `submission.zip` (contents of `template_cpp/`, after `cleanup.sh`) plus `test.txt` holding a single integer 0–6. "Setup script failed" = wrong zip structure. This complements the local checks (it doesn't replace them): it's the only run in the real grading environment, but gives no details on why a test fails.
 - [x] **CP0** (end of Phase 0): bare template → test 0. Expect a fail (no output), but no "setup script failed" → packaging + compiler OK.
-- [ ] **CP1** (end of Phase 1, baseline passes local manual run): tests 0–6. Start 4–6 first since they are slow. Any fail → fix before Phase 5.
+- [x] **CP1** (end of Phase 1, baseline passes local manual run): tests 0–6. Start 4–6 first since they are slow. Any fail → fix before Phase 5.
 - [ ] **CP2** (end of Phase 5, after the last kept optimization): tests 0–6 again; optimizations must not break correctness.
 - [ ] **CP3** (Phase 6, the exact zip to be submitted officially): tests 0–6 on that same zip.
 - [ ] Record each checkpoint's results (commit hash, test → 0/1) in the log at the bottom.
@@ -74,7 +74,7 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 - [ ] Same with `tc` netem (delay/loss/reorder) on. Done (OK, 2026-10-24): P = 3, M = 1000 plain and with stress interference. Missing: larger P and M.
 - [ ] Same with stress interference (STOP/CONT/TERM), incl. receiver being TERM'd (PL1 then not required). Done (all OK, `tools/run_stress.sh`): P ∈ {2, 3, 10} × M ∈ {10, 1 000, 100 000}, P = 50 × {10, 1 000}, P = 128 × {10, 1 000}; receiver TERM'd in P = 3, M = 10. Missing: P = 50 and 128 with M = 100 000.
 - [ ] Edge cases: receiver started last / paused long (SIGSTOP), sender killed mid-batch, SIGTERM under max load (no partial lines), hosts with trailing spaces/newlines, M = 2147483647 (no huge allocation). Done (OK, no `tc`): receiver started 6 s after the senders, hosts file with trailing spaces/tab/blank line/no final newline, SIGTERM under max load ×5 (no partial lines), M = 2147483647 (RSS ≈ 4 MB). Missing: sender killed mid-batch as a separate test, receiver paused for a long time.
-- [ ] Moodle checkpoint **CP1** (tests 0–6) — all must pass before optimizing further.
+- [x] Moodle checkpoint **CP1** (tests 0–6) — all passed (2026-10-25); safe to optimize.
 
 ## Phase 4 — Benchmark harness (Day 3)
 - [ ] `tools/bench.sh P SECONDS`: hosts for P procs, config `<huge m> 1`, start all with `taskset -c 0,1` (2 cores like the grader), no tc, wait SECONDS (grader ≈ 2 min; use 30–60 s locally), SIGTERM all, wait for exit, report receiver `d` lines / SECONDS, output size, max RSS (`/usr/bin/time -v` or `/proc/<pid>/status`).
@@ -110,6 +110,7 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 | Date | CP | Commit | Results (test: 0/1) | Notes |
 |------|----|--------|---------------------|-------|
 | 2026-10-24 | CP0 | 20cd420 + uncommitted Phase 0 changes | 0: 0 | Setup and build OK; failed only because no `proc0N.output` files exist (expected for the bare template). |
+| 2026-10-25 | CP1 | fc3c7c1 (zip built 2026-10-24 17:15) | 0–6: all 1 | Feedback only says "No Error" per test; stored in `submission/CP1/`. |
 
 ## Later (after M1)
 - [ ] Milestone 2 FIFO-URB on top of the PL module (Dec 9). Milestone 3 Lattice Agreement (Dec 30).
