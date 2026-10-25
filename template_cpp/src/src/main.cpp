@@ -5,6 +5,7 @@
 #include <cstring>
 #include <fstream>
 #include <netinet/in.h>
+#include <sys/uio.h>
 #include <poll.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -16,7 +17,8 @@
 
 // Wire format (network byte order):
 //   DATA: 1 | u8 sender | u8 k | k x (u32 seq | u16 len | payload)
-//   ACK:  2 | u8 receiver | u8 k | k x u32 seq   (acks every seq of the DATA packet it answers)
+//   ACK:  2 | u8 receiver | u32 low | u64 mask   (every seq < low is delivered; mask bit i = seq low+1+i is delivered)
+// The receiver sends one ACK per sender per receive burst, describing its whole state, so ACKs are cumulative and idempotent.
 // Sender and receiver share the window size: the sender never has more than
 // kWindow unacked seqs, so the receiver can track [low, low+kWindow) in a bitset.
 namespace {
@@ -27,6 +29,8 @@ constexpr auto kRto = std::chrono::milliseconds(500);
 constexpr auto kScanEvery = std::chrono::milliseconds(50);
 constexpr size_t kMaxPacket = 65536;
 constexpr unsigned kMaxBatch = 8; // messages per packet (project limit)
+constexpr size_t kAckSize = 14;
+static_assert(kWindow <= 65, "ACK bitmap covers low+1 .. low+64");
 
 using Clock = std::chrono::steady_clock;
 
@@ -56,15 +60,6 @@ void sendData(int fd, const sockaddr_in &dst, uint8_t myId, const uint32_t *seqs
     put32(p + 6, seqs[i]);
   }
   sendto(fd, pkt, static_cast<size_t>(p - pkt), 0, reinterpret_cast<const sockaddr *>(&dst), sizeof dst);
-}
-
-void sendAck(int fd, const sockaddr_in &dst, uint8_t myId, const uint32_t *seqs, unsigned k) {
-  uint8_t pkt[3 + kMaxBatch * 4];
-  pkt[0] = kAck;
-  pkt[1] = myId;
-  pkt[2] = static_cast<uint8_t>(k);
-  for (unsigned i = 0; i < k; i++) put32(pkt + 3 + 4 * i, seqs[i]);
-  sendto(fd, pkt, 3 + 4 * k, 0, reinterpret_cast<const sockaddr *>(&dst), sizeof dst);
 }
 
 void runSender(int fd, const sockaddr_in &dst, uint8_t myId, uint32_t m, Logger &log) {
@@ -108,11 +103,14 @@ void runSender(int fd, const sockaddr_in &dst, uint8_t myId, uint32_t m, Logger 
       if (r < 0) break;
       if (stopFlag) return;
       size_t n = static_cast<size_t>(r);
-      if (n < 3 || buf[0] != kAck || n != 3 + 4 * size_t{buf[2]}) continue;
-      for (unsigned i = 0; i < buf[2]; i++) {
-        uint32_t seq = get32(buf + 3 + 4 * i);
-        if (seq < base || seq >= next) continue;
-        acked[seq % kWindow] = 1;
+      if (n != kAckSize || buf[0] != kAck) continue;
+      uint32_t low = get32(buf + 2);
+      if (low > next) continue; // cannot ack what was never sent
+      while (base < low) acked[base++ % kWindow] = 0;
+      uint64_t mask = (uint64_t{get32(buf + 6)} << 32) | get32(buf + 10);
+      for (unsigned i = 0; mask; i++, mask >>= 1) {
+        uint32_t seq = low + 1 + i;
+        if ((mask & 1) && seq >= base && seq < next) acked[seq % kWindow] = 1;
       }
       while (base != next && acked[base % kWindow]) acked[base++ % kWindow] = 0;
     }
@@ -124,40 +122,84 @@ struct RxState {
   std::bitset<kWindow> got; // delivered seqs in [low, low + kWindow)
 };
 
+// recvmmsg/sendmmsg move up to kBurst packets per syscall; our own DATA packets are at most 3 + 8 x 10 bytes.
+constexpr unsigned kBurst = 64;
+constexpr size_t kSlot = 256;
+
 void runReceiver(int fd, const std::vector<sockaddr_in> &addrs, uint8_t myId, Logger &log) {
   std::vector<RxState> rx(addrs.size());
-  uint8_t buf[kMaxPacket];
+  std::vector<uint8_t> touched(addrs.size(), 0);
+  static uint8_t in[kBurst][kSlot];
+  static uint8_t out[kBurst][kAckSize];
+  iovec inIov[kBurst], outIov[kBurst];
+  mmsghdr inMsg[kBurst], outMsg[kBurst];
+  uint8_t touchedList[kBurst];
 
   while (!stopFlag) {
     if (!waitReadable(fd, 100)) continue;
     for (;;) {
-      ssize_t r = recv(fd, buf, sizeof buf, MSG_DONTWAIT);
-      if (r < 0) break;
-      if (stopFlag) return;
-      size_t n = static_cast<size_t>(r);
-      if (n < 3 || buf[0] != kData) continue;
-      size_t sender = buf[1];
-      if (sender == 0 || sender >= addrs.size()) continue;
-      size_t off = 3;
-      uint32_t toAck[kMaxBatch];
-      unsigned nAck = 0;
-      for (unsigned i = 0; i < buf[2] && i < kMaxBatch; i++) {
-        if (n - off < 6) break;
-        uint32_t seq = get32(buf + off);
-        size_t len = get16(buf + off + 4);
-        if (n - off - 6 < len) break;
-        off += 6 + len;
-
-        RxState &st = rx[sender];
-        if (seq >= st.low + kWindow) continue; // beyond sender's window: drop, it will resend
-        if (seq >= st.low && !st.got[seq % kWindow]) {
-          st.got[seq % kWindow] = true;
-          log.deliver(sender, seq);
-          while (st.got[st.low % kWindow]) st.got[st.low++ % kWindow] = false;
-        }
-        toAck[nAck++] = seq; // always ack, duplicates included
+      for (unsigned i = 0; i < kBurst; i++) {
+        inIov[i] = {in[i], kSlot};
+        inMsg[i] = {};
+        inMsg[i].msg_hdr.msg_iov = &inIov[i];
+        inMsg[i].msg_hdr.msg_iovlen = 1;
       }
-      if (nAck) sendAck(fd, addrs[sender], myId, toAck, nAck);
+      int got = recvmmsg(fd, inMsg, kBurst, MSG_DONTWAIT, nullptr);
+      if (got <= 0) break;
+      if (stopFlag) return;
+
+      unsigned nTouched = 0;
+      for (int p = 0; p < got; p++) {
+        const uint8_t *buf = in[p];
+        size_t n = inMsg[p].msg_len;
+        if (n < 3 || buf[0] != kData) continue;
+        size_t sender = buf[1];
+        if (sender == 0 || sender >= addrs.size()) continue;
+        RxState &st = rx[sender];
+        size_t off = 3;
+        for (unsigned i = 0; i < buf[2] && i < kMaxBatch; i++) {
+          if (n - off < 6) break;
+          uint32_t seq = get32(buf + off);
+          size_t len = get16(buf + off + 4);
+          if (n - off - 6 < len) break;
+          off += 6 + len;
+
+          if (seq >= st.low + kWindow) continue; // beyond sender's window: drop, it will resend
+          if (seq >= st.low && !st.got[seq % kWindow]) {
+            st.got[seq % kWindow] = true;
+            log.deliver(sender, seq);
+            while (st.got[st.low % kWindow]) st.got[st.low++ % kWindow] = false;
+          }
+        }
+        if (!touched[sender]) { // every packet is answered, duplicates included
+          touched[sender] = 1;
+          touchedList[nTouched++] = static_cast<uint8_t>(sender);
+        }
+      }
+      if (stopFlag) return;
+
+      for (unsigned t = 0; t < nTouched; t++) {
+        size_t sender = touchedList[t];
+        touched[sender] = 0;
+        const RxState &st = rx[sender];
+        uint64_t mask = 0;
+        for (unsigned i = 0; i + 1 < kWindow; i++)
+          if (st.got[(st.low + 1 + i) % kWindow]) mask |= uint64_t{1} << i;
+        uint8_t *ack = out[t];
+        ack[0] = kAck;
+        ack[1] = myId;
+        put32(ack + 2, st.low);
+        put32(ack + 6, static_cast<uint32_t>(mask >> 32));
+        put32(ack + 10, static_cast<uint32_t>(mask));
+        outIov[t] = {ack, kAckSize};
+        outMsg[t] = {};
+        outMsg[t].msg_hdr.msg_name = const_cast<sockaddr_in *>(&addrs[sender]);
+        outMsg[t].msg_hdr.msg_namelen = sizeof(sockaddr_in);
+        outMsg[t].msg_hdr.msg_iov = &outIov[t];
+        outMsg[t].msg_hdr.msg_iovlen = 1;
+      }
+      // best effort: unsent acks are recovered by the sender's retransmission
+      if (nTouched) sendmmsg(fd, outMsg, nTouched, 0);
     }
   }
 }

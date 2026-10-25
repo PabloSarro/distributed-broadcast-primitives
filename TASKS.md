@@ -82,14 +82,14 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 
 ## Phase 5 — Performance (Days 4–5; one change at a time, measure, keep only wins, re-run Phase 3 quick set)
 - [x] Batch 8 messages per DATA packet (ACK now lists the seqs of the packet it answers, so this also coalesces acks per packet).
-- [ ] Ack coalescing: cumulative ack + per-packet seqs; consider one ack per recv batch.
-- [ ] `recvmmsg` / `sendmmsg` to cut syscalls.
+- [x] Ack coalescing (done: one cumulative `low` + 64-bit mask ACK per sender per receive burst): cumulative ack + per-packet seqs; consider one ack per recv batch.
+- [~] `recvmmsg` / `sendmmsg` to cut syscalls: receiver done (burst of 64); sender still uses recv/sendto.
 - [ ] Tune W (possibly scaled by P to avoid receiver buffer overflow with 127 senders).
 - [ ] Bigger `SO_RCVBUF`/`SO_SNDBUF` (check effective size with `getsockopt`).
 - [ ] Adaptive RTO (replaces fixed) — mostly helps the tc/loss tests.
 - [ ] Logger: hand-rolled int→text, large buffer, flush off the hot path if it shows up in profiles (`perf` if available).
 - [ ] Check: no spinning (CPU of idle senders ≈ 0), threads ≤ 3–4, RSS small at P = 128.
-- [ ] Watch output size (baseline P = 50 already writes 57.5 MiB in 30 s, so a 2-min run would blow the 64 MiB cap. Spec: >64 MiB output is a hard limit and malformed output is discarded as empty → need a guard that stops delivering before ~60 MiB): at very high throughput the receiver log can approach the 64 MiB cap — note numbers in the log.
+- [x] Output size: no guard needed. TA (Moodle forum, Valentin Porchet): if the log format is right, ignore the 64 MiB limit; a test that hits it only measures raw throughput. Never add debug lines to the log, never double-deliver.
 - [ ] Moodle checkpoint **CP2** (tests 0–6).
 
 ## Phase 6 — Freeze & submit (Days 6–7, submit by Oct 29 evening, servers get slow near deadlines)
@@ -113,6 +113,15 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 | 2026-10-25 | batch 8/packet + list ack | 10 | 198 k | 41.1 | 3–4 MiB | 20 s run; validator OK (P=3 M=1000, P=10 M=100000) |
 | 2026-10-25 | batch 8/packet + list ack | 50 | 230 k | 47.1 | 3–4 MiB | 20 s run; validator OK (P=3 M=1000, P=10 M=100000) |
 | 2026-10-25 | batch 8/packet + list ack | 128 | 212 k | 43.8 | 3–4 MiB | 20 s run; validator OK (P=3 M=1000, P=10 M=100000) |
+| 2026-10-25 | (A/B, medians of 3 × 10 s, interleaved) batch+list-ack | 2/10/50/128 | 124 k / 141 k / 260 k / 176 k | – | – | same-binary runs vary 2–8×, so only compare interleaved medians |
+| 2026-10-25 | + recvmmsg/sendmmsg receiver + cumulative/bitmap ack | 2/10/50/128 | 75 k / 304 k / 707 k / 355 k | – | – | P=2 regressed (latency-bound: W/RTT); P≥10 2–3× better. Validator OK: plain P=10,50,128; stress P=3,5,10 |
+
+Findings so far (2026-10-25):
+- Benchmark noise on WSL is huge (identical binary: 85 k–270 k msgs/s at P=2). Always compare interleaved A/B runs (`BIN=… tools/bench.sh`, `CPUS=…`), ≥3 repeats, use medians; `msgs_per_cpu_s` is a steadier secondary metric.
+- Window W sweep (16/32/64/128) and RTO sweep (20/50/100/500 ms) with the old ack scheme: no clear winner within the noise; RTO 20 ms is clearly bad (retransmit storms at P=128). Kept W=32, RTO=500 ms, scan 50 ms.
+- Receive-buffer drops (`/proc/net/snmp` RcvbufErrors) ≈ 6 k per 15 s run at P=128. `rmem_max` here is 212992, so SO_RCVBUF cannot be raised without privileges.
+- Cost is per datagram (~40 µs CPU on WSL loopback): fewer datagrams (batching, ack coalescing) was the big win.
+- P=2 is latency-bound (throughput ≈ W / RTT) → try window scaled up when there are few processes.
 
 ## Moodle checkpoint log
 | Date | CP | Commit | Results (test: 0/1) | Notes |
