@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <algorithm>
 #include <atomic>
 #include <bitset>
 #include <chrono>
@@ -17,20 +18,30 @@
 
 // Wire format (network byte order):
 //   DATA: 1 | u8 sender | u8 k | k x (u32 seq | u16 len | payload)
-//   ACK:  2 | u8 receiver | u32 low | u64 mask   (every seq < low is delivered; mask bit i = seq low+1+i is delivered)
+//   ACK:  2 | u8 receiver | u32 low | window/32 x u32 mask   (every seq < low is delivered; bit i of the mask = seq low+1+i is delivered)
 // The receiver sends one ACK per sender per receive burst, describing its whole state, so ACKs are cumulative and idempotent.
 // Sender and receiver share the window size: the sender never has more than
-// kWindow unacked seqs, so the receiver can track [low, low+kWindow) in a bitset.
+// gWindow unacked seqs, so the receiver can track [low, low+gWindow) in a bitset.
 namespace {
 
 constexpr uint8_t kData = 1, kAck = 2;
-constexpr uint32_t kWindow = 32;
+constexpr uint32_t kMaxWindow = 256; // multiple of 32 (ACK bitmap words)
+// Both sides derive the same window from the number of processes, see windowFor().
+uint32_t gWindow = 32;
 constexpr auto kRto = std::chrono::milliseconds(500);
 constexpr auto kScanEvery = std::chrono::milliseconds(50);
 constexpr size_t kMaxPacket = 65536;
 constexpr unsigned kMaxBatch = 8; // messages per packet (project limit)
-constexpr size_t kAckSize = 14;
-static_assert(kWindow <= 65, "ACK bitmap covers low+1 .. low+64");
+constexpr size_t kMaxAckSize = 6 + 4 * (kMaxWindow / 32);
+size_t ackSize() { return 6 + 4 * size_t{gWindow / 32}; }
+
+// The receiver socket buffer holds only ~200 small datagrams, so the total of in-flight packets
+// ((n-1) senders x window/8) is budgeted; with few processes the window is larger to hide latency.
+uint32_t windowFor(size_t nProcesses) {
+  constexpr uint32_t budget = 3200; // messages in flight at the receiver; measured: 3200 > 1600 at P = 30, 50
+  uint32_t w = budget / static_cast<uint32_t>(std::max<size_t>(nProcesses - 1, 1)) / 32 * 32;
+  return std::min(std::max(w, 32u), kMaxWindow);
+}
 
 using Clock = std::chrono::steady_clock;
 
@@ -63,20 +74,20 @@ void sendData(int fd, const sockaddr_in &dst, uint8_t myId, const uint32_t *seqs
 }
 
 void runSender(int fd, const sockaddr_in &dst, uint8_t myId, uint32_t m, Logger &log) {
-  std::vector<uint8_t> acked(kWindow, 0);
-  std::vector<Clock::time_point> sentAt(kWindow);
+  std::vector<uint8_t> acked(gWindow, 0);
+  std::vector<Clock::time_point> sentAt(gWindow);
   uint32_t base = 1, next = 1; // [base, next) in flight, seq 1..m
   auto lastScan = Clock::now();
   uint8_t buf[kMaxPacket];
 
   while (!stopFlag) {
     auto now = Clock::now();
-    while (!stopFlag && next <= m && next - base < kWindow) {
+    while (!stopFlag && next <= m && next - base < gWindow) {
       uint32_t batch[kMaxBatch];
       unsigned k = 0;
-      while (k < kMaxBatch && next <= m && next - base < kWindow) {
+      while (k < kMaxBatch && next <= m && next - base < gWindow) {
         log.broadcast(next); // logged before the message first hits the wire
-        sentAt[next % kWindow] = now;
+        sentAt[next % gWindow] = now;
         batch[k++] = next++;
       }
       sendData(fd, dst, myId, batch, k);
@@ -87,8 +98,8 @@ void runSender(int fd, const sockaddr_in &dst, uint8_t myId, uint32_t m, Logger 
       uint32_t batch[kMaxBatch];
       unsigned k = 0;
       for (uint32_t s = base; s != next && !stopFlag; s++) {
-        if (!acked[s % kWindow] && now - sentAt[s % kWindow] >= kRto) {
-          sentAt[s % kWindow] = now;
+        if (!acked[s % gWindow] && now - sentAt[s % gWindow] >= kRto) {
+          sentAt[s % gWindow] = now;
           batch[k++] = s;
           if (k == kMaxBatch) { sendData(fd, dst, myId, batch, k); k = 0; }
         }
@@ -96,30 +107,32 @@ void runSender(int fd, const sockaddr_in &dst, uint8_t myId, uint32_t m, Logger 
       if (k && !stopFlag) sendData(fd, dst, myId, batch, k);
     }
 
-    bool canSend = next <= m && next - base < kWindow;
+    bool canSend = next <= m && next - base < gWindow;
     if (!canSend && !waitReadable(fd, static_cast<int>(kScanEvery.count()))) continue;
     for (;;) {
       ssize_t r = recv(fd, buf, sizeof buf, MSG_DONTWAIT);
       if (r < 0) break;
       if (stopFlag) return;
       size_t n = static_cast<size_t>(r);
-      if (n != kAckSize || buf[0] != kAck) continue;
+      if (n != ackSize() || buf[0] != kAck) continue;
       uint32_t low = get32(buf + 2);
       if (low > next) continue; // cannot ack what was never sent
-      while (base < low) acked[base++ % kWindow] = 0;
-      uint64_t mask = (uint64_t{get32(buf + 6)} << 32) | get32(buf + 10);
-      for (unsigned i = 0; mask; i++, mask >>= 1) {
-        uint32_t seq = low + 1 + i;
-        if ((mask & 1) && seq >= base && seq < next) acked[seq % kWindow] = 1;
+      while (base < low) acked[base++ % gWindow] = 0;
+      for (unsigned w = 0; w < gWindow / 32; w++) {
+        uint32_t mask = get32(buf + 6 + 4 * w);
+        for (unsigned i = 0; mask; i++, mask >>= 1) {
+          uint32_t seq = low + 1 + 32 * w + i;
+          if ((mask & 1) && seq >= base && seq < next) acked[seq % gWindow] = 1;
+        }
       }
-      while (base != next && acked[base % kWindow]) acked[base++ % kWindow] = 0;
+      while (base != next && acked[base % gWindow]) acked[base++ % gWindow] = 0;
     }
   }
 }
 
 struct RxState {
   uint32_t low = 1; // every seq < low has been delivered
-  std::bitset<kWindow> got; // delivered seqs in [low, low + kWindow)
+  std::bitset<kMaxWindow> got; // delivered seqs in [low, low + gWindow), indexed seq % gWindow
 };
 
 // recvmmsg/sendmmsg move up to kBurst packets per syscall; our own DATA packets are at most 3 + 8 x 10 bytes.
@@ -130,7 +143,7 @@ void runReceiver(int fd, const std::vector<sockaddr_in> &addrs, uint8_t myId, Lo
   std::vector<RxState> rx(addrs.size());
   std::vector<uint8_t> touched(addrs.size(), 0);
   static uint8_t in[kBurst][kSlot];
-  static uint8_t out[kBurst][kAckSize];
+  static uint8_t out[kBurst][kMaxAckSize];
   iovec inIov[kBurst], outIov[kBurst];
   mmsghdr inMsg[kBurst], outMsg[kBurst];
   uint8_t touchedList[kBurst];
@@ -164,11 +177,11 @@ void runReceiver(int fd, const std::vector<sockaddr_in> &addrs, uint8_t myId, Lo
           if (n - off - 6 < len) break;
           off += 6 + len;
 
-          if (seq >= st.low + kWindow) continue; // beyond sender's window: drop, it will resend
-          if (seq >= st.low && !st.got[seq % kWindow]) {
-            st.got[seq % kWindow] = true;
+          if (seq >= st.low + gWindow) continue; // beyond sender's window: drop, it will resend
+          if (seq >= st.low && !st.got[seq % gWindow]) {
+            st.got[seq % gWindow] = true;
             log.deliver(sender, seq);
-            while (st.got[st.low % kWindow]) st.got[st.low++ % kWindow] = false;
+            while (st.got[st.low % gWindow]) st.got[st.low++ % gWindow] = false;
           }
         }
         if (!touched[sender]) { // every packet is answered, duplicates included
@@ -182,16 +195,15 @@ void runReceiver(int fd, const std::vector<sockaddr_in> &addrs, uint8_t myId, Lo
         size_t sender = touchedList[t];
         touched[sender] = 0;
         const RxState &st = rx[sender];
-        uint64_t mask = 0;
-        for (unsigned i = 0; i + 1 < kWindow; i++)
-          if (st.got[(st.low + 1 + i) % kWindow]) mask |= uint64_t{1} << i;
+        uint32_t mask[kMaxWindow / 32] = {};
+        for (unsigned i = 0; i + 1 < gWindow; i++)
+          if (st.got[(st.low + 1 + i) % gWindow]) mask[i / 32] |= uint32_t{1} << (i % 32);
         uint8_t *ack = out[t];
         ack[0] = kAck;
         ack[1] = myId;
         put32(ack + 2, st.low);
-        put32(ack + 6, static_cast<uint32_t>(mask >> 32));
-        put32(ack + 10, static_cast<uint32_t>(mask));
-        outIov[t] = {ack, kAckSize};
+        for (unsigned w = 0; w < gWindow / 32; w++) put32(ack + 6 + 4 * w, mask[w]);
+        outIov[t] = {ack, ackSize()};
         outMsg[t] = {};
         outMsg[t].msg_hdr.msg_name = const_cast<sockaddr_in *>(&addrs[sender]);
         outMsg[t].msg_hdr.msg_namelen = sizeof(sockaddr_in);
@@ -231,6 +243,7 @@ int main(int argc, char **argv) {
   }
   if (receiver == 0 || receiver > maxId) return 1;
 
+  gWindow = windowFor(hosts.size());
   size_t myId = parser.id();
   int fd = socket(AF_INET, SOCK_DGRAM, 0);
   sockaddr_in me{};

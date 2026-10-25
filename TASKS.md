@@ -84,7 +84,7 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 - [x] Batch 8 messages per DATA packet (ACK now lists the seqs of the packet it answers, so this also coalesces acks per packet).
 - [x] Ack coalescing (done: one cumulative `low` + 64-bit mask ACK per sender per receive burst): cumulative ack + per-packet seqs; consider one ack per recv batch.
 - [~] `recvmmsg` / `sendmmsg` to cut syscalls: receiver done (burst of 64); sender still uses recv/sendto.
-- [ ] Tune W (possibly scaled by P to avoid receiver buffer overflow with 127 senders).
+- [x] Tune W: window = 3200/(n-1) rounded down to a multiple of 32, clamped to [32, 256] (n=2 → 256, n=10 → 256, n=50 → 64, n≥100 → 32); ACK bitmap is window/32 words. Budget sweep (interleaved, 4 repeats): 3200 > 1600 at P=30/50, ≥6400 no clearer win.
 - [ ] Bigger `SO_RCVBUF`/`SO_SNDBUF` (check effective size with `getsockopt`).
 - [ ] Adaptive RTO (replaces fixed) — mostly helps the tc/loss tests.
 - [ ] Logger: hand-rolled int→text, large buffer, flush off the hot path if it shows up in profiles (`perf` if available).
@@ -115,6 +115,7 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 | 2026-10-25 | batch 8/packet + list ack | 128 | 212 k | 43.8 | 3–4 MiB | 20 s run; validator OK (P=3 M=1000, P=10 M=100000) |
 | 2026-10-25 | (A/B, medians of 3 × 10 s, interleaved) batch+list-ack | 2/10/50/128 | 124 k / 141 k / 260 k / 176 k | – | – | same-binary runs vary 2–8×, so only compare interleaved medians |
 | 2026-10-25 | + recvmmsg/sendmmsg receiver + cumulative/bitmap ack | 2/10/50/128 | 75 k / 304 k / 707 k / 355 k | – | – | P=2 regressed (latency-bound: W/RTT); P≥10 2–3× better. Validator OK: plain P=10,50,128; stress P=3,5,10 |
+| 2026-10-25 | + window scaled by P (budget 3200) | 2/10/50/128 | 524 k / 421 k / 323 k / 199 k | – | – | 3 × 10 s medians; P=2 ~5×. Validator OK: plain P=2,10,50,128; stress P=3,10 |
 
 Findings so far (2026-10-25):
 - Benchmark noise on WSL is huge (identical binary: 85 k–270 k msgs/s at P=2). Always compare interleaved A/B runs (`BIN=… tools/bench.sh`, `CPUS=…`), ≥3 repeats, use medians; `msgs_per_cpu_s` is a steadier secondary metric.
