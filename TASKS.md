@@ -16,7 +16,7 @@ Spec: `../info/project/proj_description.md` §1.2, §2.3, §2.4, FAQ. Grading: c
 Testing Milestone 1 is open (Oct 16 → Oct 30, 23:59): unlimited submissions, one test per submission, pass/fail only, no performance score. 7 tests (0–6); 0–3 return fast, 4–6 can take longer. Upload `submission.zip` (contents of `template_cpp/`, after `cleanup.sh`) plus `test.txt` holding a single integer 0–6. "Setup script failed" = wrong zip structure. This complements the local checks (it doesn't replace them): it's the only run in the real grading environment, but gives no details on why a test fails.
 - [x] **CP0** (end of Phase 0): bare template → test 0. Expect a fail (no output), but no "setup script failed" → packaging + compiler OK.
 - [x] **CP1** (end of Phase 1, baseline passes local manual run): tests 0–6. Start 4–6 first since they are slow. Any fail → fix before Phase 5.
-- [ ] **CP2** (end of Phase 5, after the last kept optimization): tests 0–6 again; optimizations must not break correctness.
+- [x] **CP2** (end of Phase 5, after the last kept optimization): tests 0–6 again; optimizations must not break correctness.
 - [ ] **CP3** (Phase 6, the exact zip to be submitted officially): tests 0–6 on that same zip.
 - [ ] Record each checkpoint's results (commit hash, test → 0/1) in the log at the bottom.
 
@@ -71,7 +71,7 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 
 ## Phase 3 — Correctness matrix (Days 2–3, re-run after every optimization)
 - [ ] P ∈ {2, 3, 10, 50, 128} × M ∈ {10, 1 000, 100 000} without tc, no interference (`tools/run_plain.sh`). Done: all M ∈ {10, 1 000}; M = 100 000 for P ∈ {2, 3, 10, 50}. P = 128, M = 100 000 now done too (2026-10-26, 150 s wait): 12.7 M delivered, all validator checks OK; receiver log 140 MB, so only the 64 MiB cap is exceeded (TA: not a grading issue; checked with `validate_pl.py --ignore-size`).
-- [ ] Same with `tc` netem (delay/loss/reorder) on. Done (OK): P = 3, M = 1000 plain and with stress interference (2026-10-24); P = 10, M = 1000 plain and with stress interference (2026-10-26, user's terminal). Missing: larger P and M.
+- [ ] Same with `tc` netem (delay/loss/reorder) on. Done (OK): P = 3, M = 1000 plain and with stress interference (2026-10-24); P = 10, M = 1000 plain and with stress interference (2026-10-26, user's terminal). P = 50, M = 1000 plain and with stress interference (3 procs TERM'd) under netem: OK (2026-10-26, user's terminal). Frozen build, all OK (2026-10-27, user's terminal): P = 128 M = 1000 plain and stress (9 TERM'd), P = 3 M = 100 000 plain and stress, P = 10 M = 20 000 plain and stress (2 TERM'd). ASan/UBSan stress clean (P = 4 M = 3000, P = 10 M = 5000 incl. receiver TERM'd). Not run: P = 128 M = 100 000 under netem.
 - [ ] Same with stress interference (STOP/CONT/TERM), incl. receiver being TERM'd (PL1 then not required). Done (all OK, `tools/run_stress.sh`): P ∈ {2, 3, 10} × M ∈ {10, 1 000, 100 000}, P = 50 × {10, 1 000}, P = 128 × {10, 1 000}; receiver TERM'd in P = 3, M = 10. P = 50 and P = 128 with M = 100 000 now done too (2026-10-26; P = 128: 2 procs TERM'd, 12.5 M delivered, OK with `--ignore-size`; receiver log over 64 MiB).
 - [ ] Edge cases: receiver started last / paused long (SIGSTOP), sender killed mid-batch, SIGTERM under max load (no partial lines), hosts with trailing spaces/newlines, M = 2147483647 (no huge allocation). Done (OK, no `tc`): receiver started 6 s after the senders, hosts file with trailing spaces/tab/blank line/no final newline, SIGTERM under max load ×5 (no partial lines), M = 2147483647 (RSS ≈ 4 MB). Sender killed mid-run (P = 10, M = 20 000, sender 2 TERM'd after 7 728 b lines) and receiver paused 20 s with SIGSTOP (P = 3 and 10, M = 20 000): all OK (2026-10-26). Note: in the P = 3 kill test the sender had already finished, so only P = 10 is a true mid-run kill.
 - [x] Moodle checkpoint **CP1** (tests 0–6) — all passed (2026-10-25); safe to optimize.
@@ -90,7 +90,7 @@ Same procedure for every checkpoint and for the official submission. Wrapped in 
 - [x] Logger: hand-rolled int→text into a fixed buffer (flush at 64 KiB). Interleaved A/B: neutral to slightly better (P=2 +40 %, P=128 +30 %, others within noise). `perf` is not installed; flush off the hot path not needed.
 - [x] Check: finished processes use ≈ 0 CPU (0.01–0.02 s per 10 s idle), 2 threads per process, RSS ≈ 4 MB (also at P = 128).
 - [x] Output size: no guard needed. TA (Moodle forum, Valentin Porchet): if the log format is right, ignore the 64 MiB limit; a test that hits it only measures raw throughput. Never add debug lines to the log, never double-deliver.
-- [ ] Moodle checkpoint **CP2** (tests 0–6).
+- [x] Moodle checkpoint **CP2** (tests 0–6) — all passed (2026-10-26, template_cpp at 705160e).
 
 ## Phase 6 — Freeze & submit (Days 6–7, submit by Oct 29 evening, servers get slow near deadlines)
 - [ ] Full Phase 3 matrix passes on the final build; Moodle checkpoint **CP3** (tests 0–6) on the exact zip to submit.
@@ -130,6 +130,7 @@ Findings so far (2026-10-25):
 |------|----|--------|---------------------|-------|
 | 2026-10-24 | CP0 | 20cd420 + uncommitted Phase 0 changes | 0: 0 | Setup and build OK; failed only because no `proc0N.output` files exist (expected for the bare template). |
 | 2026-10-25 | CP1 | fc3c7c1 (zip built 2026-10-24 17:15) | 0–6: all 1 | Feedback only says "No Error" per test; stored in `submission/CP1/`. |
+| 2026-10-26 | CP2 | 705160e (template_cpp unchanged since c41b9f9) | 0–6: all 1 | Batching, coalesced bitmap ACKs, recvmmsg/sendmmsg receiver, window scaled by P, hand-rolled logger. Feedback in `submission/CP2/`. |
 
 ## Later (after M1)
 - [ ] Milestone 2 FIFO-URB on top of the PL module (Dec 9). Milestone 3 Lattice Agreement (Dec 30).
