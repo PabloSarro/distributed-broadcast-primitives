@@ -15,6 +15,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("logs")
     ap.add_argument("--crashed", type=int, nargs="*")
+    ap.add_argument("--ignore-size", action="store_true", help="do not fail on the 64 MiB cap (checks the rest)")
     args = ap.parse_args()
 
     crashed = set(args.crashed or [])
@@ -30,7 +31,7 @@ def main():
     for path in sorted(glob.glob(os.path.join(args.logs, "proc*.output"))):
         pid = int(re.search(r"proc(\d+)\.output", path).group(1))
         data = open(path, "rb").read()
-        if len(data) > MAX_BYTES:
+        if len(data) > MAX_BYTES and not args.ignore_size:
             errors.append(f"proc {pid}: output > 64 MiB")
         if data and not data.endswith(b"\n"):
             errors.append(f"proc {pid}: last line not newline-terminated")
