@@ -132,7 +132,7 @@ size_t ackSize() {
 uint32_t windowFor(size_t nProcesses) {
   constexpr uint32_t A = 3200;
   uint32_t nprocs;
-  if (nProcesses < 1) {
+  if (nProcesses < 2) {
     nprocs = 1;
   } else {
     nprocs = static_cast<uint32_t>(nProcesses-1); // n-1 senders
@@ -231,7 +231,7 @@ void runSender(int sock, const sockaddr_in &sock_adrr, uint8_t myId, uint32_t m,
     // ---- STEP 1: SEND NEW DATA MSGS ----
     while (!stopFlag && next <= m && next - base < window_size) { // While still msgs to be sent AND while they can be sent (i.e. there is still size in the window),
       uint32_t batch[kMaxBatch]; // batch of msgs to be sent within this DATA packet (up to 8 = kMaxBatch)
-      unsigned k = 0;            // how many seqs are included in the packet so far
+      uint8_t k = 0;            // how many seqs are included in the packet so far
       while (k < kMaxBatch && next <= m && next - base < window_size) { // Same conditions, but checked for every msg in the packet, since these conditions can change for the LAST packet (m might not be a multiple of kMaxBatch=8).
         log.broadcast(next);          // Log "b next" BEFORE it is sent for the first time (to satisfy PL3, since we could be killed between sendto() and the logging, where PL3 would be broken).
         sentAt[next % window_size] = now; // start its transmission timer
@@ -244,7 +244,7 @@ void runSender(int sock, const sockaddr_in &sock_adrr, uint8_t myId, uint32_t m,
     if (now - lastScan >= kScanEvery) { // This is checked at most once every kScanEvery = 50 ms.
       lastScan = now;
       uint32_t batch[kMaxBatch];
-      unsigned k = 0;
+      uint8_t k = 0;
       for (uint32_t s = base; s < next && !stopFlag; s++) { // Walk through every in-flight seq [base, next).
         if (!acked[s % window_size] && now - sentAt[s % window_size] >= kRTO) { // If not acked and was last sent >= 500ms ago,
           sentAt[s % window_size] = now;
