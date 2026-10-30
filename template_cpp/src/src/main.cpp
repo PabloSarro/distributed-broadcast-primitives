@@ -135,7 +135,7 @@ uint32_t windowFor(size_t nProcesses) {
   if (nProcesses < 1) {
     nprocs = 1;
   } else {
-    nprocs = static_cast<uint32_t>(nProcesses);
+    nprocs = static_cast<uint32_t>(nProcesses-1); // n-1 senders
   }
   // window_Size should be a multiple of 32, since ACK mask is sent as whole 32-bit words (W bits are split into W/32 words).
   uint32_t w = (A / nprocs)/32 * 32; // Round down to nearest multiple of 32.
